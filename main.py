@@ -11,7 +11,7 @@ class IPMonitor(Star):
         super().__init__(context)
         self.last_ipv4 = []
         self.last_ipv6 = []
-        self.notify_origin = None
+        self.notify_target = None  # 存储完整事件对象
         asyncio.create_task(self.ip_change_monitor())
 
     def _get_network_ips(self):
@@ -41,27 +41,20 @@ class IPMonitor(Star):
                 v4_changed = current_v4 != self.last_ipv4
                 v6_changed = current_v6 != self.last_ipv6
                 
-                if (v4_changed or v6_changed) and self.notify_origin:
+                if (v4_changed or v6_changed) and self.notify_target:
                     msg_parts = [
-                        Plain("🛜 检测到IP地址变化\n")
+                        Plain("🛜 检测到IP地址变化\n"),
+                        Plain(f"IPv4: {', '.join(self.last_ipv4) or '无'} → {', '.join(current_v4)}\n") if v4_changed else None,
+                        Plain(f"IPv6: {', '.join(self.last_ipv6) or '无'} → {', '.join(current_v6)}\n") if v6_changed else None,
+                        Plain(f"⏰ 检测时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                     ]
                     
-                    if v4_changed:
-                        msg_parts.append(Plain(
-                            f"IPv4: {', '.join(self.last_ipv4) or '无'} → {', '.join(current_v4)}\n"
-                        ))
-                    if v6_changed:
-                        msg_parts.append(Plain(
-                            f"IPv6: {', '.join(self.last_ipv6) or '无'} → {', '.join(current_v6)}\n"
-                        ))
-                    
-                    msg_parts.append(Plain(
-                        f"⏰ 检测时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                    ))
+                    # 过滤空内容
+                    msg_parts = [p for p in msg_parts if p]
                     
                     await self.context.send_message(
-                        unified_msg_origin=self.notify_origin,
-                        chain=MessageChain(msg_parts)
+                        target_origin=self.notify_target["origin"],
+                        message=msg_parts
                     )
                     
                     self.last_ipv4 = current_v4
@@ -81,21 +74,24 @@ class IPMonitor(Star):
     @permission_type(PermissionType.ADMIN)
     async def set_notify_channel(self, event: AstrMessageEvent):
         """设置通知频道"""
-        # 兼容性消息类型判断
-        chat_info = "未知频道类型"
-        if hasattr(event, 'group_id') and event.group_id:
-            chat_info = f"群组ID: {event.group_id}"
-        elif hasattr(event, 'user_id') and event.user_id:
-            chat_info = f"用户ID: {event.user_id}"
+        # 存储完整事件信息
+        self.notify_target = {
+            "origin": event.origin_dict,  # 使用原始事件数据
+            "chat_type": event.message_type.value
+        }
         
-        self.notify_origin = event.unified_msg_origin
+        # 构建响应消息
+        response = [
+            Plain("✅ 通知频道设置成功！"),
+            Plain(f"\n聊天类型: {event.message_type.name}")
+        ]
         
-        confirm_msg = MessageChain([
-            Plain("✅ 通知频道设置成功！\n"),
-            Plain(chat_info)
-        ])
+        if hasattr(event, 'group_id'):
+            response.append(Plain(f"\n群组ID: {event.group_id}"))
+        elif hasattr(event, 'user_id'):
+            response.append(Plain(f"\n用户ID: {event.user_id}"))
 
-        yield event.chain_result(confirm_msg)
+        yield response  # 直接返回消息部件列表
 
     @command("sysinfo")
     async def get_system_info(self, event: AstrMessageEvent):
@@ -112,28 +108,32 @@ class IPMonitor(Star):
             Plain(f"IPv6: {', '.join(current_v6) or '无'}\n"),
             Plain(f"CPU使用率: {cpu_usage}%\n"),
             Plain(f"内存使用: {mem.percent}%\n"),
-            Plain(f"磁盘使用: {disk.percent}%"),
-            Plain("\n\n🔔 通知频道: 已启用" if self.notify_origin else "\n\n🔕 通知频道: 未设置")
+            Plain(f"磁盘使用: {disk.percent}%")
         ]
+        
+        if self.notify_target:
+            info_parts.append(Plain("\n\n🔔 通知频道: 已启用"))
+        else:
+            info_parts.append(Plain("\n\n🔕 通知频道: 未设置"))
 
-        yield event.chain_result(MessageChain(info_parts))
+        yield info_parts  # 直接返回消息部件列表
 
     @command("test_notify")
     @permission_type(PermissionType.ADMIN)
     async def test_notification(self, event: AstrMessageEvent):
         """测试通知"""
-        if not self.notify_origin:
-            yield event.plain_result("❌ 尚未设置通知频道")
+        if not self.notify_target:
+            yield [Plain("❌ 尚未设置通知频道")]
             return
         
-        test_chain = MessageChain([
-            Plain("🔔 测试通知\n"),
-            Plain("✅ 通知系统工作正常！")
-        ])
-        
-        await self.context.send_message(
-            unified_msg_origin=self.notify_origin,
-            chain=test_chain
-        )
-        
-        yield event.plain_result("测试通知已发送")
+        try:
+            await self.context.send_message(
+                target_origin=self.notify_target["origin"],
+                message=[
+                    Plain("🔔 测试通知\n"),
+                    Plain("✅ 通知系统工作正常！")
+                ]
+            )
+            yield [Plain("测试通知已发送")]
+        except Exception as e:
+            yield [Plain(f"❌ 通知发送失败: {str(e)}")]
