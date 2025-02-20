@@ -1,9 +1,9 @@
 {
     "notify_target": {
-        "type": "string",
-        "description": "通知频道标识",
+        "type": "string", 
+        "description": "通知目标通道",
         "default": "",
-        "hint": "格式：平台_会话ID（示例：qq_group_123456）",
-        "obvious_hint": true
+        "hint": "系统自动管理字段，请勿手动修改",
+        "invisible": true
     }
 }
