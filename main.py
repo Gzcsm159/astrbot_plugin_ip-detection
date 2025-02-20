@@ -42,25 +42,26 @@ class IPMonitor(Star):
                 v6_changed = current_v6 != self.last_ipv6
                 
                 if (v4_changed or v6_changed) and self.notify_origin:
-                    msg_chain = MessageChain()
-                    msg_chain.append(Plain("🛜 检测到IP地址变化\n"))
+                    msg_parts = [
+                        Plain("🛜 检测到IP地址变化\n")
+                    ]
                     
                     if v4_changed:
-                        msg_chain.append(Plain(
+                        msg_parts.append(Plain(
                             f"IPv4: {', '.join(self.last_ipv4) or '无'} → {', '.join(current_v4)}\n"
                         ))
                     if v6_changed:
-                        msg_chain.append(Plain(
+                        msg_parts.append(Plain(
                             f"IPv6: {', '.join(self.last_ipv6) or '无'} → {', '.join(current_v6)}\n"
                         ))
                     
-                    msg_chain.append(Plain(
+                    msg_parts.append(Plain(
                         f"⏰ 检测时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                     ))
                     
                     await self.context.send_message(
                         unified_msg_origin=self.notify_origin,
-                        chain=msg_chain
+                        chain=MessageChain(msg_parts)
                     )
                     
                     self.last_ipv4 = current_v4
@@ -89,10 +90,11 @@ class IPMonitor(Star):
         
         self.notify_origin = event.unified_msg_origin
         
-        confirm_msg = MessageChain()
-        confirm_msg.append(Plain("✅ 通知频道设置成功！\n"))
-        confirm_msg.append(Plain(chat_info))
-        
+        confirm_msg = MessageChain([
+            Plain("✅ 通知频道设置成功！\n"),
+            Plain(chat_info)
+        ])
+
         yield event.chain_result(confirm_msg)
 
     @command("sysinfo")
@@ -104,17 +106,17 @@ class IPMonitor(Star):
         mem = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
         
-        info_chain = MessageChain()
-        info_chain.append(Plain("🖥️ 系统状态监控\n"))
-        info_chain.append(Plain(f"IPv4: {', '.join(current_v4) or '无'}\n"))
-        info_chain.append(Plain(f"IPv6: {', '.join(current_v6) or '无'}\n"))
-        info_chain.append(Plain(f"CPU使用率: {cpu_usage}%\n"))
-        info_chain.append(Plain(f"内存使用: {mem.percent}%\n"))
-        info_chain.append(Plain(f"磁盘使用: {disk.percent}%"))
-        
-        info_chain.append(Plain("\n\n🔔 通知频道: 已启用" if self.notify_origin else "\n\n🔕 通知频道: 未设置"))
+        info_parts = [
+            Plain("🖥️ 系统状态监控\n"),
+            Plain(f"IPv4: {', '.join(current_v4) or '无'}\n"),
+            Plain(f"IPv6: {', '.join(current_v6) or '无'}\n"),
+            Plain(f"CPU使用率: {cpu_usage}%\n"),
+            Plain(f"内存使用: {mem.percent}%\n"),
+            Plain(f"磁盘使用: {disk.percent}%"),
+            Plain("\n\n🔔 通知频道: 已启用" if self.notify_origin else "\n\n🔕 通知频道: 未设置")
+        ]
 
-        yield event.chain_result(info_chain)
+        yield event.chain_result(MessageChain(info_parts))
 
     @command("test_notify")
     @permission_type(PermissionType.ADMIN)
@@ -124,9 +126,10 @@ class IPMonitor(Star):
             yield event.plain_result("❌ 尚未设置通知频道")
             return
         
-        test_chain = MessageChain()
-        test_chain.append(Plain("🔔 测试通知\n"))
-        test_chain.append(Plain("✅ 通知系统工作正常！"))
+        test_chain = MessageChain([
+            Plain("🔔 测试通知\n"),
+            Plain("✅ 通知系统工作正常！")
+        ])
         
         await self.context.send_message(
             unified_msg_origin=self.notify_origin,
