@@ -2,6 +2,7 @@
     "notify_target": {
         "type": "string",
         "description": "通知目标通道标识",
-        "default": ""
+        "default": "",
+        "hint": "格式示例: qq:group_123456"
     }
 }
