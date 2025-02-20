@@ -5,7 +5,7 @@ import socket
 import asyncio
 from datetime import datetime
 
-@register("ip_monitor", "TechQuery", "IP监控插件", "1.0.2", "https://your.repo")
+@register("ip_monitor", "TechQuery", "IP监控插件", "1.0.3", "https://your.repo")
 class IPMonitor(Star):
     def init(self, context: Context, config: dict):
         super().init(context, config)
@@ -18,7 +18,7 @@ class IPMonitor(Star):
             self.monitor_task = asyncio.create_task(self._safe_monitor())
 
     def _get_network_ips(self):
-        """兼容IPv6地址获取"""
+        """获取网络接口IP信息"""
         ip_info = {"v4": set(), "v6": set()}
         for interface, addrs in psutil.net_if_addrs().items():
             for addr in addrs:
@@ -80,9 +80,11 @@ class IPMonitor(Star):
             version = "IPv4" if ip_type == "v4" else "IPv6"
             msg.message(f"{version}变化：\n")
             if diff["added"]:
-                msg.message(f"➕ 新增: {', '.join(diff['added']}\n")
+                # 修正点：补全join()闭合括号
+                msg.message(f"➕ 新增: {', '.join(diff['added'])}\n")  # <-- 这里修复
             if diff["removed"]:
-                msg.message(f"➖ 移除: {', '.join(diff['removed']}\n")
+                # 修正点：补全join()闭合括号
+                msg.message(f"➖ 移除: {', '.join(diff['removed'])}\n")  # <-- 这里修复
         
         try:
             await self.context.send_message(
@@ -93,7 +95,7 @@ class IPMonitor(Star):
             print(f"[NOTIFY FAILED] {str(e)}")
 
     @command("set_notify")
-    @permission_type("admin")  # 使用字符串权限标识
+    @permission_type("admin")
     async def set_notify_target(self, event: AstrMessageEvent):
         """设置通知目标"""
         self.config["notify_target"] = event.unified_msg_origin
@@ -110,7 +112,7 @@ class IPMonitor(Star):
         ips = self._get_network_ips()
         msg = (MessageChain()
             .message("🌐 当前网络状态\n")
-            .message(f"IPv4: {', '.join(ips['v4']) or '无'}\n")
-            .message(f"IPv6: {', '.join(ips['v6']) or '无'}"))
+            .message(f"IPv4: {', '.join(ips['v4']) or '无'}\n")  # <-- 检查这里
+            .message(f"IPv6: {', '.join(ips['v6']) or '无'}"))  # <-- 检查这里
         
         yield msg
