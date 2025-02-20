@@ -1,5 +1,6 @@
 from astrbot.api.all import *
-from astrbot.api.event.filter import command, permission_type, PermissionType  # 修正导入方式
+from astrbot.api.event.filter import command, permission_type, PermissionType
+from astrbot.api.event import EventMessageType
 import psutil
 import socket
 import asyncio
@@ -11,7 +12,7 @@ class IPMonitor(Star):
         super().__init__(context)
         self.last_ipv4 = []
         self.last_ipv6 = []
-        self.notify_target = None
+        self.notify_origin = None  # 只存储消息来源标识
         asyncio.create_task(self.ip_change_monitor())
 
     def _get_network_ips(self):
@@ -41,7 +42,7 @@ class IPMonitor(Star):
                 v4_changed = current_v4 != self.last_ipv4
                 v6_changed = current_v6 != self.last_ipv6
                 
-                if (v4_changed or v6_changed) and self.notify_target:
+                if (v4_changed or v6_changed) and self.notify_origin:
                     msg_chain = MessageChain()
                     msg_chain.append(Plain("🛜 检测到IP地址变化\n"))
                     
@@ -59,7 +60,7 @@ class IPMonitor(Star):
                     ))
                     
                     await self.context.send_message(
-                        unified_msg_origin=self.notify_target["origin"],
+                        unified_msg_origin=self.notify_origin,
                         chain=msg_chain
                     )
                     
@@ -76,19 +77,23 @@ class IPMonitor(Star):
                 print(f"[IP监控] 任务出错: {str(e)}")
                 await asyncio.sleep(60)
 
-    # 修正后的命令注册方式
     @command("set_notify")
     @permission_type(PermissionType.ADMIN)
     async def set_notify_channel(self, event: AstrMessageEvent):
         """设置通知频道"""
-        self.notify_target = {
-            "origin": event.unified_msg_origin,
-            "chat_id": event.chat_id
-        }
+        # 获取正确的聊天ID显示
+        chat_id = ""
+        if event.message_type == EventMessageType.GROUP_MESSAGE:
+            chat_id = f"群组ID: {event.group_id}"
+        elif event.message_type == EventMessageType.PRIVATE_MESSAGE:
+            chat_id = f"用户ID: {event.user_id}"
+        
+        # 存储消息来源标识
+        self.notify_origin = event.unified_msg_origin
         
         confirm_msg = MessageChain()
         confirm_msg.append(Plain("✅ 通知频道设置成功！\n"))
-        confirm_msg.append(Plain(f"频道ID: {event.chat_id}"))
+        confirm_msg.append(Plain(chat_id))
         
         yield event.chain_result(confirm_msg)
 
@@ -109,10 +114,7 @@ class IPMonitor(Star):
         info_chain.append(Plain(f"内存使用: {mem.percent}%\n"))
         info_chain.append(Plain(f"磁盘使用: {disk.percent}%"))
         
-        if self.notify_target:
-            info_chain.append(Plain("\n\n🔔 通知频道: 已启用"))
-        else:
-            info_chain.append(Plain("\n\n🔕 通知频道: 未设置"))
+        info_chain.append(Plain("\n\n🔔 通知频道: 已启用" if self.notify_origin else "\n\n🔕 通知频道: 未设置"))
 
         yield event.chain_result(info_chain)
 
@@ -120,7 +122,7 @@ class IPMonitor(Star):
     @permission_type(PermissionType.ADMIN)
     async def test_notification(self, event: AstrMessageEvent):
         """测试通知"""
-        if not self.notify_target:
+        if not self.notify_origin:
             yield event.plain_result("❌ 尚未设置通知频道")
             return
         
@@ -129,7 +131,7 @@ class IPMonitor(Star):
         test_chain.append(Plain("✅ 通知系统工作正常！"))
         
         await self.context.send_message(
-            unified_msg_origin=self.notify_target["origin"],
+            unified_msg_origin=self.notify_origin,
             chain=test_chain
         )
         
