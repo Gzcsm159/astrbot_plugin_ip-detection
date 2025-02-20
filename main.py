@@ -1,6 +1,5 @@
 from astrbot.api.all import *
 from astrbot.api.event.filter import command, permission_type, PermissionType
-from astrbot.api.event.message import EventMessageType  # 修正导入路径
 import psutil
 import socket
 import asyncio
@@ -81,13 +80,12 @@ class IPMonitor(Star):
     @permission_type(PermissionType.ADMIN)
     async def set_notify_channel(self, event: AstrMessageEvent):
         """设置通知频道"""
-        # 获取消息类型
-        if event.message_type == EventMessageType.GROUP_MESSAGE:
+        # 兼容性消息类型判断
+        chat_info = "未知频道类型"
+        if hasattr(event, 'group_id') and event.group_id:
             chat_info = f"群组ID: {event.group_id}"
-        elif event.message_type == EventMessageType.PRIVATE_MESSAGE:
+        elif hasattr(event, 'user_id') and event.user_id:
             chat_info = f"用户ID: {event.user_id}"
-        else:
-            chat_info = "未知频道类型"
         
         self.notify_origin = event.unified_msg_origin
         
