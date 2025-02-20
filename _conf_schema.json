@@ -1,8 +1,9 @@
+// _conf_schema.json
 {
     "notify_target": {
         "type": "string",
-        "description": "通知通道标识(格式: 平台_会话ID)",
+        "description": "通知目标通道标识",
         "default": "",
-        "hint": "示例: qq_group_123456 或 wechat_private_654321"
+        "hint": "由系统自动生成，请勿手动修改"
     }
 }
