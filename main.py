@@ -1,6 +1,6 @@
 from astrbot.api.all import *
 from astrbot.api.event.filter import command, permission_type, PermissionType
-from astrbot.api.event import EventMessageType
+from astrbot.api.event.message import EventMessageType  # 修正导入路径
 import psutil
 import socket
 import asyncio
@@ -12,7 +12,7 @@ class IPMonitor(Star):
         super().__init__(context)
         self.last_ipv4 = []
         self.last_ipv6 = []
-        self.notify_origin = None  # 只存储消息来源标识
+        self.notify_origin = None
         asyncio.create_task(self.ip_change_monitor())
 
     def _get_network_ips(self):
@@ -81,19 +81,19 @@ class IPMonitor(Star):
     @permission_type(PermissionType.ADMIN)
     async def set_notify_channel(self, event: AstrMessageEvent):
         """设置通知频道"""
-        # 获取正确的聊天ID显示
-        chat_id = ""
+        # 获取消息类型
         if event.message_type == EventMessageType.GROUP_MESSAGE:
-            chat_id = f"群组ID: {event.group_id}"
+            chat_info = f"群组ID: {event.group_id}"
         elif event.message_type == EventMessageType.PRIVATE_MESSAGE:
-            chat_id = f"用户ID: {event.user_id}"
+            chat_info = f"用户ID: {event.user_id}"
+        else:
+            chat_info = "未知频道类型"
         
-        # 存储消息来源标识
         self.notify_origin = event.unified_msg_origin
         
         confirm_msg = MessageChain()
         confirm_msg.append(Plain("✅ 通知频道设置成功！\n"))
-        confirm_msg.append(Plain(chat_id))
+        confirm_msg.append(Plain(chat_info))
         
         yield event.chain_result(confirm_msg)
 
