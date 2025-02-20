@@ -1,6 +1,10 @@
 from astrbot.api.all import *
-from astrbot.api.event.filter import command, permission_type, PermissionType
-from astrbot.api.event import EventMessageType  # 新增导入
+from astrbot.api.event.filter import (  # 修正导入路径
+    command,
+    permission_type,
+    PermissionType,
+    EventMessageType  # 正确导入位置
+)
 import psutil
 import socket
 import asyncio
@@ -81,7 +85,7 @@ class IPMonitor(Star):
         response = event.make_result()
         response.message("✅ 通知频道设置成功！\n")
         
-        # 使用正确的方法获取消息类型
+        # 使用正确的枚举判断方式
         if event.get_message_type() == EventMessageType.GROUP_MESSAGE:
             response.message(f"群组ID: {event.get_group_id()}\n")
         else:
