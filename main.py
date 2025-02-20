@@ -1,202 +1,141 @@
-# main.py
 from astrbot.api.all import *
-from astrbot.api.event.filter import command, permission_type
+from astrbot.api.event.filter import (  # 修正导入路径
+    command,
+    permission_type,
+    PermissionType,
+    EventMessageType  # 正确导入位置
+)
 import psutil
 import socket
 import asyncio
 from datetime import datetime
 
-@register("ip_monitor", "TechQuery", "IP监控插件", "1.3.0", "https://github.com/yourrepo")
+@register("ip_monitor", "YourName", "IP地址监控插件", "1.0.0", "https://your.repo.url")
 class IPMonitor(Star):
-    def init(self, context: Context, config: dict):
-        # 配置系统三重保障初始化
-        super().init(context, config or {})  # 处理空配置
-        self.context = context
-        self.config = getattr(self, 'config', {})  # 防御性初始化
-        self.config.update(config if isinstance(config, dict) else {})
-        self.config.setdefault("notify_target", "")
+    def __init__(self, context: Context):
+        super().__init__(context)
+        self.last_ipv4 = []
+        self.last_ipv6 = []
+        self.notify_target = None
+        asyncio.create_task(self.ip_change_monitor())
+
+    def _get_network_ips(self):
+        """获取当前所有网络接口IP"""
+        addrs = psutil.net_if_addrs()
+        ipv4_list = []
+        ipv6_list = []
         
-        # 网络状态跟踪
-        self.last_ips = {"v4": set(), "v6": set()}
-        self.monitor_task = None
-        self._init_monitor()
+        for iface, snics in addrs.items():
+            for snic in snics:
+                if snic.family == socket.AF_INET and snic.address != '127.0.0.1':
+                    ipv4_list.append(snic.address)
+                elif snic.family == socket.AF_INET6:
+                    addr = snic.address.split('%')[0]
+                    if addr != '::1':
+                        ipv6_list.append(addr)
+        return sorted(ipv4_list), sorted(ipv6_list)
 
-    def _init_monitor(self):
-        """安全初始化监控任务"""
-        if self.monitor_task and not self.monitor_task.done():
-            self.monitor_task.cancel()
-        self.monitor_task = asyncio.create_task(self._monitor_service())
-
-    def _get_valid_ips(self):
-        """获取有效IP地址（增强过滤）"""
-        ip_info = {"v4": set(), "v6": set()}
-        for iface, addrs in psutil.net_if_addrs().items():
-            # 过滤虚拟接口
-            if "virtual" in iface.lower() or "vEthernet" in iface:
-                continue
-                
-            for addr in addrs:
-                # IPv4处理
-                if addr.family == socket.AF_INET:
-                    if (not addr.address.startswith('127.') 
-                       and (addr.netmask not in ['255.255.255.255', '0.0.0.0']):
-                        ip_info["v4"].add(addr.address)
-                # IPv6处理        
-                elif addr.family == socket.AF_INET6:
-                    clean_addr = addr.address.split('%')[0]
-                    if (not clean_addr.startswith(('fe80', '::1'))) 
-                       and (clean_addr.count(':') > 2):
-                        ip_info["v6"].add(clean_addr)
-        return ip_info
-
-    async def _monitor_service(self):
-        """监控服务（带双保险机制）"""
+    async def ip_change_monitor(self):
+        """IP变化监控后台任务"""
+        await asyncio.sleep(10)
+        
         while True:
             try:
-                await self._monitor_cycle()
-            except asyncio.CancelledError:
-                break
+                current_v4, current_v6 = self._get_network_ips()
+                
+                v4_changed = current_v4 != self.last_ipv4
+                v6_changed = current_v6 != self.last_ipv6
+                
+                if (v4_changed or v6_changed) and self.notify_target:
+                    message = MessageChain()
+                    message.plain("🛜 检测到IP地址变化\n")
+                    
+                    if v4_changed:
+                        message.plain(f"IPv4: {', '.join(self.last_ipv4) or '无'} → {', '.join(current_v4)}\n")
+                    
+                    if v6_changed:
+                        message.plain(f"IPv6: {', '.join(self.last_ipv6) or '无'} → {', '.join(current_v6)}\n")
+                    
+                    message.plain(f"⏰ 检测时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                    
+                    await self.context.send_message(
+                        unified_msg_origin=self.notify_target,
+                        message=message
+                    )
+                    
+                    self.last_ipv4 = current_v4
+                    self.last_ipv6 = current_v6
+                
+                elif not self.last_ipv4:
+                    self.last_ipv4 = current_v4
+                    self.last_ipv6 = current_v6
+                
+                await asyncio.sleep(600)
+                
             except Exception as e:
-                print(f"[MONITOR CRASH] {str(e)}")
+                print(f"[IP监控] 任务出错: {str(e)}")
                 await asyncio.sleep(60)
 
-    async def _monitor_cycle(self):
-        """监控周期逻辑"""
-        await asyncio.sleep(10)  # 初始延迟
-        
-        while True:
-            current_ips = self._get_valid_ips()
-            changes = self._detect_changes(current_ips)
-            
-            if changes and self.config.get("notify_target"):
-                await self._send_notice(changes)
-                self.last_ips = current_ips
-                
-            await asyncio.sleep(300)
-
-    def _detect_changes(self, current):
-        """变更检测（支持回滚）"""
-        changes = {}
-        for ip_type in ["v4", "v6"]:
-            old = self.last_ips.get(ip_type, set())
-            new = current.get(ip_type, set())
-            
-            added = new - old
-            removed = old - new
-            
-            if added or removed:
-                changes[ip_type] = {
-                    "added": sorted(added),
-                    "removed": sorted(removed),
-                    "timestamp": datetime.now().isoformat()
-                }
-        return changes
-
-    async def _send_notice(self, changes):
-        """发送平台适配通知"""
-        try:
-            msg = self._build_notice_message(changes)
-            await self.context.send_message(
-                unified_msg_origin=self.config["notify_target"],
-                message=msg
-            )
-        except Exception as e:
-            print(f"[NOTICE FAILED] {str(e)}")
-            # 失败重试逻辑
-            await asyncio.sleep(5)
-            await self._send_notice(changes)
-
-    def _build_notice_message(self, changes):
-        """构建跨平台消息"""
-        msg = (MessageChain()
-            .message("🔔 网络地址变化通知\n")
-            .text(f"⏱ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"))
-        
-        for ip_type, detail in changes.items():
-            version = "IPv4" if ip_type == "v4" else "IPv6"
-            msg.message(f"【{version}变更】\n")
-            if detail["added"]:
-                msg.message(f"➕ 新增: {', '.join(detail['added'])}\n")
-            if detail["removed"]:
-                msg.message(f"➖ 移除: {', '.join(detail['removed'])}\n")
-        
-        # 平台适配增强
-        if "qq" in self.config.get("notify_target", ""):
-            msg = msg.face(112)  # QQ笑脸表情
-        elif "wechat" in self.config.get("notify_target", ""):
-            msg = msg.image("https://example.com/wechat-alert.png")
-        
-        return msg
-
     @command("set_notify")
-    @permission_type("admin")
+    @permission_type(PermissionType.ADMIN)
     async def set_notify_channel(self, event: AstrMessageEvent):
-        """设置通知频道（五重保障）"""
-        # 配置系统保障
-        if not hasattr(self, 'config'):
-            self.config = {}
-        if not isinstance(self.config, dict):
-            self.config = {}
-        self.config.setdefault("notify_target", "")
+        """设置通知频道"""
+        self.notify_target = event.unified_msg_origin
         
-        # 保存配置
-        self.config["notify_target"] = event.unified_msg_origin
-        try:
-            await self.context.config_manager.save_config(
-                plugin_name=self.name,
-                config=self.config
-            )
-        except Exception as e:
-            yield event.plain_result(f"❌ 配置保存失败: {str(e)}")
-            return
+        response = event.make_result()
+        response.message("✅ 通知频道设置成功！\n")
         
-        # 构建响应
-        response = (MessageChain()
-            .message("✅ 通知设置成功\n")
-            .message(f"▪ 平台: {event.get_platform_name().upper()}\n")
-            .message(f"▪ 类型: {'群组' if event.is_group_message() else '私聊'}\n")
-            .message(f"▪ 会话ID: {event.get_group_id() or event.get_sender_id()}"))
+        # 使用正确的枚举判断方式
+        if event.get_message_type() == EventMessageType.GROUP_MESSAGE:
+            response.message(f"群组ID: {event.get_group_id()}\n")
+        else:
+            response.message(f"用户ID: {event.get_sender_id()}\n")
+        
+        response.message(f"平台类型: {event.get_platform_name()}")
         
         yield response
 
-    @command("netstat")
-    async def show_network_status(self, event: AstrMessageEvent):
-        """显示网络状态"""
-        ips = self._get_valid_ips()
-        msg = (MessageChain()
-            .message("🌐 实时网络状态\n")
-            .message(f"🕒 检测时间: {datetime.now().strftime('%H:%M:%S')}\n")
-            .message(f"📡 IPv4地址:\n{', '.join(ips['v4']) or '无'}\n")
-            .message(f"📡 IPv6地址:\n{', '.join(ips['v6']) or '无'}"))
+    @command("sysinfo")
+    async def get_system_info(self, event: AstrMessageEvent):
+        """获取系统信息"""
+        current_v4, current_v6 = self._get_network_ips()
         
-        yield msg
-
-    @command("monitor")
-    @permission_type("admin")
-    async def manage_monitor(self, event: AstrMessageEvent, action: str = "status"):
-        """监控任务管理"""
-        action = action.lower()
-        status_map = {
-            "running": "🟢 运行中",
-            "stopped": "🔴 已停止"
-        }
+        cpu_usage = psutil.cpu_percent(interval=1)
+        mem = psutil.virtual_memory()
+        disk = psutil.disk_usage('/')
         
-        current_status = "running" if self.monitor_task and not self.monitor_task.done() else "stopped"
+        info = event.make_result()
+        info.message("🖥️ 系统状态监控\n")
+        info.message(f"IPv4: {', '.join(current_v4) or '无'}\n")
+        info.message(f"IPv6: {', '.join(current_v6) or '无'}\n")
+        info.message(f"CPU使用率: {cpu_usage}%\n")
+        info.message(f"内存使用: {mem.percent}%\n")
+        info.message(f"磁盘使用: {disk.percent}%")
         
-        if action == "stop":
-            if current_status == "running":
-                self.monitor_task.cancel()
-                yield event.plain_result("🛑 已停止监控")
-            else:
-                yield event.plain_result("ℹ️ 监控未运行")
-        elif action == "start":
-            if current_status == "stopped":
-                self._init_monitor()
-                yield event.plain_result("✅ 已启动监控")
-            else:
-                yield event.plain_result("ℹ️ 监控已在运行")
-        elif action == "restart":
-            self._init_monitor()
-            yield event.plain_result("🔄 已重启监控")
+        if self.notify_target:
+            info.message("\n\n🔔 通知频道: 已启用")
         else:
-            yield event.plain_result(f"📊 当前状态: {status_map[current_status]}")
+            info.message("\n\n🔕 通知频道: 未设置")
+
+        yield info
+
+    @command("test_notify")
+    @permission_type(PermissionType.ADMIN)
+    async def test_notification(self, event: AstrMessageEvent):
+        """测试通知"""
+        if not self.notify_target:
+            yield event.plain_result("❌ 尚未设置通知频道")
+            return
+        
+        try:
+            test_msg = MessageChain()
+            test_msg.plain("🔔 测试通知\n")
+            test_msg.plain("✅ 通知系统工作正常！")
+            
+            await self.context.send_message(
+                unified_msg_origin=self.notify_target,
+                message=test_msg
+            )
+            yield event.plain_result("测试通知已发送")
+        except Exception as e:
+            yield event.plain_result(f"❌ 通知发送失败: {str(e)}")
