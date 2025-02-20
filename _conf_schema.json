@@ -1,8 +1,8 @@
 {
     "notify_target": {
         "type": "string",
-        "description": "通知目标通道标识",
+        "description": "通知通道标识(格式: 平台_会话ID)",
         "default": "",
-        "hint": "格式示例: qq:group_123456"
+        "hint": "示例: qq_group_123456 或 wechat_private_654321"
     }
 }
