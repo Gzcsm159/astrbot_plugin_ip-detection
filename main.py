@@ -1,12 +1,12 @@
 from astrbot.api.all import *
-from astrbot.api.event import EventMessageType, PermissionType
 from astrbot.api.event.filter import command, permission_type
+from astrbot.api.event import PermissionType  # 权限类型导入
 import psutil
 import socket
 import asyncio
 from datetime import datetime
 
-@register("ip_monitor", "TechQuery", "智能IP监控插件", "1.0.1", "https://github.com/yourrepo")
+@register("ip_monitor", "TechQuery", "IP监控插件", "1.0.1", "https://your.repo")
 class IPMonitor(Star):
     def init(self, context: Context, config: dict):
         super().init(context, config)
@@ -20,7 +20,7 @@ class IPMonitor(Star):
             self.monitor_task = asyncio.create_task(self._safe_monitor())
 
     def _get_network_ips(self):
-        """优化后的IP获取方法"""
+        """优化IP获取逻辑"""
         ip_dict = {"v4": set(), "v6": set()}
         for iface, addrs in psutil.net_if_addrs().items():
             for addr in addrs:
@@ -41,15 +41,15 @@ class IPMonitor(Star):
                 await asyncio.sleep(300)
 
     async def ip_change_monitor(self):
-        """优化后的监控逻辑"""
-        await asyncio.sleep(30)  # 初始延迟
+        """IP变更监控核心逻辑"""
+        await asyncio.sleep(30)
         
         while True:
             current_ips = self._get_network_ips()
             changes = {}
             
             for ip_type in ["v4", "v6"]:
-                last = set(self.last_ips[ip_type])
+                last = set(self.last_ips.get(ip_type, []))
                 curr = current_ips[ip_type]
                 
                 if last != curr:
@@ -58,14 +58,14 @@ class IPMonitor(Star):
                         "removed": list(last - curr)
                     }
             
-            if changes and self.config["notify_target"]:
+            if changes and self.config.get("notify_target"):
                 await self._send_ip_change_notification(changes)
                 self.last_ips = current_ips
                 
             await asyncio.sleep(600)
 
     async def _send_ip_change_notification(self, changes: dict):
-        """构造富媒体通知消息"""
+        """构造通知消息"""
         msg = (MessageChain()
             .message("🌐 网络地址变更告警\n")
             .text(f"🕒 检测时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"))
@@ -79,7 +79,7 @@ class IPMonitor(Star):
         try:
             await self.context.send_message(
                 unified_msg_origin=self.config["notify_target"],
-                message=msg.image("https://example.com/network_alert.png")
+                message=msg
             )
         except Exception as e:
             print(f"通知发送失败: {str(e)}")
@@ -87,15 +87,27 @@ class IPMonitor(Star):
     @command("set_notify")
     @permission_type(PermissionType.ADMIN)
     async def set_notify_channel(self, event: AstrMessageEvent):
-        """增强的通知设置"""
+        """设置通知频道"""
         self.config["notify_target"] = event.unified_msg_origin
-        self.config.save_config()  # 持久化配置
+        self.config.save_config()
         
         response = (event.make_result()
             .message("✅ 通知设置已更新\n")
-            .message(f"🔔 通知目标类型: {'群组' if event.is_group_message() else '私聊'}\n")
+            .message(f"🔔 目标类型: {'群组' if event.is_group_message() else '私聊'}\n")
             .message(f"📡 平台: {event.get_platform_name().upper()}"))
         
         yield response
 
-# 其他方法保持类似优化逻辑...
+    @command("sysinfo")
+    async def get_system_info(self, event: AstrMessageEvent):
+        """获取系统信息"""
+        current_ips = self._get_network_ips()
+        
+        info = (event.make_result()
+            .message("🖥️ 系统状态监控\n")
+            .text(f"IPv4: {', '.join(current_ips['v4']) or '无'}\n")
+            .text(f"IPv6: {', '.join(current_ips['v6']) or '无'}\n")
+            .text(f"CPU使用率: {psutil.cpu_percent()}%\n")
+            .text(f"内存使用: {psutil.virtual_memory().percent}%"))
+        
+        yield info
