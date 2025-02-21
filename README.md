@@ -16,7 +16,11 @@
 
 # 制作信息
 
-  本插件由 sysinfo 插件（https://github.com/AstrBot-Devs/astrbot_plugin_sysinfo），使用deepseek-r1 ai修改而来
+  本插件由 sysinfo 插件
+  
+  https://github.com/AstrBot-Devs/astrbot_plugin_sysinfo
+  
+  使用deepseek-r1 ai修改而来
 
 # 作者语
   我零基础小白，用ai做着玩，我尽力做，希望各位大佬多点耐心，轻点喷，我是真的听不懂也看不懂。
